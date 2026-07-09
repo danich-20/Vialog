@@ -124,10 +124,10 @@ export default function App() {
     { id:"viajes",        label:"Operación", icon:"route"     },
     { id:"gastos",        label:"Gastos",    icon:"money"     },
     { id:"mantenimiento", label:"Mant.",     icon:"wrench"    },
-    { id:"camiones",      label:"Flota",     icon:"truck"     },
+    { id:"pagos",         label:"Pagos",     icon:"wallet"     },
     { id:"conductores",   label:"Choferes",  icon:"users"     },
     { id:"rutas",         label:"Rutas",     icon:"clients"   },
-    { id:"pagos", label:"Pagos", icon:"wallet" },
+    { id:"camiones",      label:"Flota",     icon:"truck" },
     { id:"cuenta",        label:"Cuenta",    icon:"users"     },
   ]
 
