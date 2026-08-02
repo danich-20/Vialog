@@ -19,7 +19,7 @@ const Viajes = ({ viajes, setViajes, camiones, conductores, rutas }) => {
   const s = f => setForm(p => ({ ...p, ...f }))
 
   const meses = [...new Set(viajes.map(v => v.fecha?.slice(0,7)).filter(Boolean))].sort().reverse()
-  const viajesMes = viajes.filter(v => v.fecha?.startsWith(mes))
+  const viajesMes = viajes.filter(v => v.fecha?.startsWith(mes)).sort((a,b) => new Date(b.fecha) - new Date(a.fecha))
 
   const openNew = () => {
     setForm({ id:uid(), fecha:today(), tickers:1, toneladas:0, tarifa_tonelada:0, ingreso_bruto:0, estado:"PENDIENTE" })
