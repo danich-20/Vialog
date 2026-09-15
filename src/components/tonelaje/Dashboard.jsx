@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { C } from '../../lib/colors'
-import { fmt } from '../../lib/helpers'
+import { fmt, fmtNum, nombreMes } from '../../lib/helpers'
 import Ic from '../ui/Icons'
 
 const KpiCard = ({ label, value, sub, color = C.accentLight, icon }) => (
   <div style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"10px", padding:"14px 16px" }}>
-    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"6px" }}>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:"8px", marginBottom:"6px" }}>
       <span style={{ fontSize:"10px", fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em" }}>{label}</span>
-      <span style={{ color, opacity:0.7 }}>{icon}</span>
+      <span style={{ color, opacity:0.7, flexShrink:0 }}>{icon}</span>
     </div>
     <div style={{ fontSize:"21px", fontWeight:600, color:C.textPrimary, letterSpacing:"-0.02em" }}>{value}</div>
     {sub && <div style={{ fontSize:"11px", color:C.textSecondary, marginTop:"3px" }}>{sub}</div>}
@@ -47,6 +47,12 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, rutas }) => {
   })
   const gxC = Object.entries(gastosPorCat).map(([cat, total]) => ({ cat, total })).sort((a,b) => b.total - a.total)
 
+  const porChofer = conductores.map(c => {
+    const mis = viajesMes.filter(v => v.conductor_id === c.id)
+    const ing = mis.reduce((s,v) => s + (v.ingreso_bruto || 0), 0)
+    return { nombre:c.nombre, pct:c.porcentaje || 0, monto: ing * ((c.porcentaje || 0) / 100), viajes: mis.length }
+  }).filter(c => c.viajes > 0).sort((a,b) => b.monto - a.monto)
+
   // ingreso por camion
   const porCamion = camiones.map(c => {
     const mis = viajesMes.filter(v => v.camion_id === c.id)
@@ -71,7 +77,7 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, rutas }) => {
       <div style={{ display:"flex", alignItems:"center", gap:"6px", flexWrap:"wrap" }}>
         {meses.map(m => (
           <button key={m} onClick={() => setMes(m)} style={{ padding:"3px 10px", borderRadius:"20px", border:"1px solid", fontSize:"11px", fontWeight:600, cursor:"pointer", background:mes===m?C.accent:"transparent", color:mes===m?"#fff":C.textMuted, borderColor:mes===m?C.accent:C.border }}>
-            {m}
+            {nombreMes(m)}
           </button>
         ))}
       </div>
@@ -79,7 +85,7 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, rutas }) => {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:"9px" }}>
         <KpiCard label="Ingreso bruto" value={`$${fmt(ingresoBruto)}`} sub={`${viajesMes.length} Viajes`} color={C.accentLight} icon={<Ic n="money" s={16}/>}/>
         <KpiCard label="Gastos" value={`$${fmt(totalGastos)}`} color={C.red} icon={<Ic n="wrench" s={16}/>}/>
-        <KpiCard label="Toneladas" value={fmt(totalToneladas)} sub={`${totalTickers} Tickers`} color="#c084fc" icon={<Ic n="truck" s={16}/>}/>
+        <KpiCard label="Toneladas" value={fmtNum(totalToneladas)} sub={`${totalTickers} Tickers`} color="#c084fc" icon={<Ic n="truck" s={16}/>}/>
         <KpiCard label="Cobranza choferes" value={`$${fmt(cobranzaChoferes)}`} color={C.yellow} icon={<Ic n="users" s={16}/>}/>
         <KpiCard label="Utilidad" value={`$${fmt(utilidad)}`} sub={`${ingresoBruto > 0 ? ((utilidad/ingresoBruto)*100).toFixed(1) : 0}% Margen`} color={utilidad >= 0 ? C.green : C.red} icon={<Ic n="money" s={16}/>}/>
         <KpiCard label="Pagado / Pendiente" value={`$${fmt(pagado)}`} sub={`Pendiente: $${fmt(pendiente)}`} color={C.green} icon={<Ic n="check" s={16}/>}/>
@@ -99,6 +105,21 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, rutas }) => {
               </div>
             </div>
           ))}
+        </div>
+
+        <div style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"10px", padding:"14px" }}>
+          <h4 style={{ margin:"0 0 10px", fontSize:"10px", fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em" }}>Cobranza por chofer</h4>
+          {porChofer.length === 0 ? <div style={{ color:C.textMuted, fontSize:"12px" }}>Sin datos este mes</div> :
+            porChofer.map(c => (
+              <div key={c.nombre} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px", padding:"6px 0", borderBottom:`1px solid ${C.bg3}` }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:"12px", color:C.textPrimary, fontWeight:600 }}>{c.nombre}</div>
+                  <div style={{ fontSize:"10px", color:C.textMuted }}>{c.viajes} viajes · {c.pct}%</div>
+                </div>
+                <div style={{ fontSize:"14px", fontWeight:700, color:C.green, flexShrink:0 }}>${fmt(c.monto)}</div>
+              </div>
+            ))
+          }
         </div>
 
         <div style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"10px", padding:"14px" }}>

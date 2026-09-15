@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { C } from '../lib/colors'
-import { fmt, calcEstado } from '../lib/helpers'
+import { fmt, fmtNum, calcEstado, nombreMes } from '../lib/helpers'
 import Badge from './ui/Badge'
 import Ic from './ui/Icons'
 
 const KpiCard = ({ label, value, sub, color = C.accentLight, icon }) => (
   <div style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"10px", padding:"14px 16px" }}>
-    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"6px" }}>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:"8px", marginBottom:"6px" }}>
       <span style={{ fontSize:"10px", fontWeight:600, color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em" }}>{label}</span>
-      <span style={{ color, opacity:0.7 }}>{icon}</span>
+      <span style={{ color, opacity:0.7, flexShrink:0 }}>{icon}</span>
     </div>
     <div style={{ fontSize:"21px", fontWeight:600, color:C.textPrimary, letterSpacing:"-0.02em" }}>{value}</div>
     {sub && <div style={{ fontSize:"11px", color:C.textSecondary, marginTop:"3px" }}>{sub}</div>}
@@ -70,7 +70,7 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, mantenimientos, pago
       <div style={{ display:"flex", alignItems:"center", gap:"6px", flexWrap:"wrap" }}>
         {meses.map(m => (
           <button key={m} onClick={() => setMes(m)} style={{ padding:"3px 10px", borderRadius:"20px", border:"1px solid", fontSize:"11px", fontWeight:600, cursor:"pointer", background:mes===m?C.accent:"transparent", color:mes===m?"#fff":C.textMuted, borderColor:mes===m?C.accent:C.border }}>
-            {m}
+            {nombreMes(m)}
           </button>
         ))}
       </div>
@@ -93,7 +93,7 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, mantenimientos, pago
         <KpiCard label="Utilidad"   value={`$${fmt(util)}`} sub={`${tf > 0 ? ((util/tf)*100).toFixed(1) : 0}% margen`} color={util >= 0 ? C.green : C.red} icon={<Ic n="money" s={16}/>}/>
         <KpiCard label="Por cobrar" value={`$${fmt(pc)}`}   color={C.yellow} icon={<Ic n="clients" s={16}/>}/>
         <KpiCard label="Cobrado"    value={`$${fmt(cob)}`}  color={C.green}  icon={<Ic n="check" s={16}/>}/>
-        <KpiCard label="En curso"   value={ec}              sub={`${fmt(tl)} lts`} color="#c084fc" icon={<Ic n="route" s={16}/>}/>
+        <KpiCard label="En curso"   value={ec}              sub={`${fmtNum(tl)} lts`} color="#c084fc" icon={<Ic n="route" s={16}/>}/>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:"12px" }}>
@@ -137,7 +137,7 @@ const Dashboard = ({ viajes, gastos, conductores, camiones, mantenimientos, pago
               <div key={cam.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${C.bg3}` }}>
                 <div>
                   <div style={{ fontSize:"12px", color:C.accentLight, fontWeight:700 }}>{cam.placa}</div>
-                  <div style={{ fontSize:"10px", color:C.textMuted }}>{fmt(cam.km)} km</div>
+                  <div style={{ fontSize:"10px", color:C.textMuted }}>{fmtNum(cam.km)} km</div>
                 </div>
                 <div style={{ display:"flex", gap:"4px" }}>
                   {v > 0 && <Badge label={`${v} vencido`} color="red"/>}

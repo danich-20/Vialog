@@ -49,13 +49,13 @@ const AIChat = ({ viajes, gastos, conductores, camiones, clientes }) => {
   return (
     <>
       {open && (
-        <div style={{ position:"fixed", bottom:"68px", right:"14px", width:"295px", background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"12px", display:"flex", flexDirection:"column", zIndex:500, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+        <div style={{ position:"fixed", bottom:"calc(122px + env(safe-area-inset-bottom))", right:"14px", width:"min(295px, calc(100vw - 28px))", background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"12px", display:"flex", flexDirection:"column", zIndex:500, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
           <div style={{ background:C.bg2, borderBottom:`1px solid ${C.border}`, padding:"10px 13px", display:"flex", alignItems:"center", gap:"7px" }}>
             <div style={{ width:"6px", height:"6px", borderRadius:"50%", background:C.accent }}/>
             <span style={{ fontSize:"13px", fontWeight:600, color:C.textPrimary }}>Asistente Vialog</span>
             <span style={{ fontSize:"10px", color:C.textMuted, marginLeft:"auto" }}>Haiku</span>
           </div>
-          <div style={{ padding:"10px", display:"flex", flexDirection:"column", gap:"7px", maxHeight:"240px", overflowY:"auto" }}>
+          <div style={{ padding:"10px", display:"flex", flexDirection:"column", gap:"7px", maxHeight:"min(240px, 38vh)", overflowY:"auto" }}>
             {msgs.map((m,i) => (
               <div key={i} style={{ alignSelf:m.role==="user"?"flex-end":"flex-start", background:m.role==="user"?C.blueBg:C.bg2, border:`1px solid ${m.role==="user"?C.blueBorder:C.border}`, color:m.role==="user"?C.blue:C.textSecondary, fontSize:"12px", padding:"7px 10px", borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px", maxWidth:"88%", lineHeight:"1.5", whiteSpace:"pre-wrap" }}>
                 {m.text}
@@ -84,7 +84,7 @@ const AIChat = ({ viajes, gastos, conductores, camiones, clientes }) => {
           </div>
         </div>
       )}
-      <button onClick={() => setOpen(p => !p)} style={{ position:"fixed", bottom:"68px", right:"14px", width:"44px", height:"44px", borderRadius:"50%", background:C.accent, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", zIndex:501, boxShadow:`0 4px 20px ${C.accent}66` }}>
+      <button onClick={() => setOpen(p => !p)} style={{ position:"fixed", bottom:"calc(68px + env(safe-area-inset-bottom))", right:"14px", width:"44px", height:"44px", borderRadius:"50%", background:C.accent, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", zIndex:501, boxShadow:`0 4px 20px ${C.accent}66` }}>
         {open ? <Ic n="close" s={19}/> : <Ic n="ai" s={19}/>}
       </button>
     </>

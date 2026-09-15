@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
 import { C } from '../lib/colors'
+import { avisar, confirmar } from '../lib/dialogo'
 import { uid, fmt } from '../lib/helpers'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
@@ -10,6 +11,7 @@ import { Inp, Field } from './ui/Input'
 const Clientes = ({ clientes, setClientes, viajes }) => {
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState({})
+  const [guardando, setGuardando] = useState(false)
   const s = f => setForm(p => ({ ...p, ...f }))
 
   const openNew = () => {
@@ -19,22 +21,31 @@ const Clientes = ({ clientes, setClientes, viajes }) => {
   const openEdit = c => { setForm({ ...c }); setModal("edit") }
 
   const save_ = async () => {
-    if (!form.nombre) return alert("El nombre es obligatorio")
-    if (modal === "new") {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase.from('clientes').insert([{ ...form, user_id: user.id }]).select()
-      setClientes(p => [...p, data[0]])
-    } else {
-      await supabase.from('clientes').update(form).eq('id', form.id)
-      setClientes(p => p.map(c => c.id === form.id ? form : c))
+    if (guardando) return
+    setGuardando(true)
+    try {
+      if (!form.nombre) return avisar("El nombre es obligatorio")
+      if (modal === "new") {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('clientes').insert([{ ...form, user_id: user.id }]).select()
+        if (error || !data?.[0]) return avisar('No se pudo guardar: ' + (error?.message || 'intenta de nuevo'))
+        setClientes(p => [...p, data[0]])
+      } else {
+        await supabase.from('clientes').update(form).eq('id', form.id)
+        setClientes(p => p.map(c => c.id === form.id ? form : c))
+      }
+      setModal(null)
+    } finally {
+      setGuardando(false)
     }
-    setModal(null)
   }
 
   const del = async id => {
-    if (!confirm("¿Eliminar?")) return
-    await supabase.from('clientes').delete().eq('id', id)
+    if (!await confirmar("¿Eliminar?")) return
+    const previos = clientes
     setClientes(p => p.filter(c => c.id !== id))
+    const { error } = await supabase.from('clientes').delete().eq('id', id)
+    if (error) { setClientes(previos); return avisar('No se pudo eliminar: ' + error.message) }
   }
 
   return (
@@ -81,7 +92,7 @@ const Clientes = ({ clientes, setClientes, viajes }) => {
           <Field label="Nombre / Empresa *"><Inp value={form.nombre || ""} onChange={e => s({ nombre:e.target.value })}/></Field>
           <Field label="RIF"><Inp value={form.rif || ""} onChange={e => s({ rif:e.target.value })}/></Field>
           <Field label="Teléfono"><Inp value={form.tel || ""} onChange={e => s({ tel:e.target.value })}/></Field>
-          <Button onClick={save_}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
+          <Button onClick={save_} disabled={guardando}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
         </Modal>
       )}
     </div>

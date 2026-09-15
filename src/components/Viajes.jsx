@@ -1,18 +1,21 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
 import { C } from '../lib/colors'
-import { uid, fmt, today } from '../lib/helpers'
+import { avisar, confirmar } from '../lib/dialogo'
+import { uid, fmt, fmtNum, today, nombreMes, coincide } from '../lib/helpers'
 import { ESTADOS, EQUIPOS } from '../lib/constants'
 import Badge from './ui/Badge'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
 import Ic from './ui/Icons'
-import { Inp, Sel, Field } from './ui/Input'
+import { Inp, Sel, Field, Buscador } from './ui/Input'
 
 const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, clientes, gastos }) => {
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState({})
+  const [guardando, setGuardando] = useState(false)
   const [filtro, setFiltro] = useState("todos")
+  const [busca, setBusca] = useState("")
   const [mes, setMes] = useState(() => {
     const hoy = new Date()
     return `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`
@@ -21,7 +24,14 @@ const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, cliente
 
   const meses = [...new Set(viajes.map(v => v.salida?.slice(0,7)).filter(Boolean))].sort().reverse()
   const viajesMes = viajes.filter(v => v.salida?.startsWith(mes))
-  const filt = filtro === "todos" ? viajesMes : viajesMes.filter(v => v.estado === filtro)
+  const filt = (filtro === "todos" ? viajesMes : viajesMes.filter(v => v.estado === filtro))
+    .filter(v => coincide(
+      busca,
+      v.numero, v.origen, v.destino, v.estado, v.equipo,
+      camiones.find(c => c.id === v.camion_id)?.placa,
+      conductores.find(c => c.id === v.conductor_id)?.nombre,
+      clientes.find(c => c.id === v.cliente_id)?.nombre,
+    ))
 
   const openNew = () => {
     setForm({ id:uid(), numero:`V-${String(viajes.length+1).padStart(3,"0")}`, salida:today(), pagado:false, estado:"en curso", litros_combustible:0, peso_kg:0 })
@@ -30,41 +40,50 @@ const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, cliente
   const openEdit = v => { setForm({ ...v }); setModal("edit") }
 
   const save_ = async () => {
-    if (!form.camion_id || !form.origen || !form.destino || !form.flete) return alert("Completa los campos obligatorios")
+    if (guardando) return
+    setGuardando(true)
+    try {
+      if (!form.camion_id || !form.origen || !form.destino || !form.flete) return avisar("Completa los campos obligatorios")
 
-    if (modal === "new") {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase.from('viajes').insert([{ ...form, user_id: user.id }]).select()
-      setViajes(p => [...p, data[0]])
-      if (form.km) {
-        const camion = camiones.find(c => c.id === form.camion_id)
-        if (camion) {
-          const nuevosKm = (camion.km || 0) + form.km
-          await supabase.from('camiones').update({ km: nuevosKm }).eq('id', camion.id)
-          setCamiones(p => p.map(c => c.id === camion.id ? { ...c, km: nuevosKm } : c))
+      if (modal === "new") {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('viajes').insert([{ ...form, user_id: user.id }]).select()
+        if (error || !data?.[0]) return avisar('No se pudo guardar: ' + (error?.message || 'intenta de nuevo'))
+        setViajes(p => [...p, data[0]])
+        if (form.km) {
+          const camion = camiones.find(c => c.id === form.camion_id)
+          if (camion) {
+            const nuevosKm = (camion.km || 0) + form.km
+            await supabase.from('camiones').update({ km: nuevosKm }).eq('id', camion.id)
+            setCamiones(p => p.map(c => c.id === camion.id ? { ...c, km: nuevosKm } : c))
+          }
+        }
+      } else {
+        const viajeAnterior = viajes.find(v => v.id === form.id)
+        const difKm = (form.km || 0) - (viajeAnterior?.km || 0)
+        await supabase.from('viajes').update(form).eq('id', form.id)
+        setViajes(p => p.map(v => v.id === form.id ? form : v))
+        if (difKm !== 0) {
+          const camion = camiones.find(c => c.id === form.camion_id)
+          if (camion) {
+            const nuevosKm = (camion.km || 0) + difKm
+            await supabase.from('camiones').update({ km: nuevosKm }).eq('id', camion.id)
+            setCamiones(p => p.map(c => c.id === camion.id ? { ...c, km: nuevosKm } : c))
+          }
         }
       }
-    } else {
-      const viajeAnterior = viajes.find(v => v.id === form.id)
-      const difKm = (form.km || 0) - (viajeAnterior?.km || 0)
-      await supabase.from('viajes').update(form).eq('id', form.id)
-      setViajes(p => p.map(v => v.id === form.id ? form : v))
-      if (difKm !== 0) {
-        const camion = camiones.find(c => c.id === form.camion_id)
-        if (camion) {
-          const nuevosKm = (camion.km || 0) + difKm
-          await supabase.from('camiones').update({ km: nuevosKm }).eq('id', camion.id)
-          setCamiones(p => p.map(c => c.id === camion.id ? { ...c, km: nuevosKm } : c))
-        }
-      }
+      setModal(null)
+    } finally {
+      setGuardando(false)
     }
-    setModal(null)
   }
 
   const del = async id => {
-    if (!confirm("¿Eliminar viaje?")) return
-    await supabase.from('viajes').delete().eq('id', id)
+    if (!await confirmar("¿Eliminar viaje?")) return
+    const previos = viajes
     setViajes(p => p.filter(v => v.id !== id))
+    const { error } = await supabase.from('viajes').delete().eq('id', id)
+    if (error) { setViajes(previos); return avisar('No se pudo eliminar: ' + error.message) }
   }
 
   const ec = { "en curso":"blue", "completado":"green", "pendiente":"yellow", "cobrado":"green" }
@@ -82,10 +101,12 @@ const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, cliente
       <div style={{ display:"flex", alignItems:"center", gap:"6px", flexWrap:"wrap" }}>
         {meses.map(m => (
           <button key={m} onClick={() => setMes(m)} style={{ padding:"3px 10px", borderRadius:"20px", border:"1px solid", fontSize:"11px", fontWeight:600, cursor:"pointer", background:mes===m?C.accent:"transparent", color:mes===m?"#fff":C.textMuted, borderColor:mes===m?C.accent:C.border }}>
-            {m}
+            {nombreMes(m)}
           </button>
         ))}
       </div>
+
+      <Buscador value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar viaje, ruta, cliente, placa..."/>
 
       <div style={{ display:"flex", gap:"5px", flexWrap:"wrap" }}>
         {["todos", ...ESTADOS].map(f => (
@@ -112,8 +133,8 @@ const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, cliente
                     {v.pagado && <Badge label="Pagado" color="green"/>}
                   </div>
                   <div style={{ fontSize:"13px", fontWeight:600, color:C.textPrimary, marginBottom:"2px" }}>{v.origen} → {v.destino}</div>
-                  <div style={{ fontSize:"11px", color:C.textMuted }}>{cam?.placa} · {cond?.nombre} · {v.km ? `${fmt(v.km)} km` : ""}{v.equipo ? ` · ${v.equipo}` : ""}</div>
-                  <div style={{ fontSize:"10px", color:C.textMuted, marginTop:"1px" }}>{v.salida}{v.llegada ? ` → ${v.llegada}` : ""}{v.litros_combustible > 0 ? ` · ${fmt(v.litros_combustible)} lts` : ""}</div>
+                  <div style={{ fontSize:"11px", color:C.textMuted }}>{cam?.placa} · {cond?.nombre} · {v.km ? `${fmtNum(v.km)} km` : ""}{v.equipo ? ` · ${v.equipo}` : ""}</div>
+                  <div style={{ fontSize:"10px", color:C.textMuted, marginTop:"1px" }}>{v.salida}{v.llegada ? ` → ${v.llegada}` : ""}{v.litros_combustible > 0 ? ` · ${fmtNum(v.litros_combustible)} lts` : ""}</div>
                 </div>
                 <div style={{ textAlign:"right" }}>
                   <div style={{ fontSize:"15px", fontWeight:700, color:C.textPrimary }}>${fmt(v.flete)}</div>
@@ -131,7 +152,7 @@ const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, cliente
 
       {modal && (
         <Modal title={modal === "new" ? "Nuevo viaje" : "Editar viaje"} onClose={() => setModal(null)}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 11px" }}>
+          <div className="form-grid">
             <Field label="N° Viaje"><Inp value={form.numero || ""} onChange={e => s({ numero:e.target.value })}/></Field>
             <Field label="Estado"><Sel value={form.estado || ""} onChange={e => s({ estado:e.target.value })}>{ESTADOS.map(x => <option key={x}>{x}</option>)}</Sel></Field>
             <Field label="Unidad *"><Sel value={form.camion_id || ""} onChange={e => s({ camion_id:e.target.value })}><option value="">Seleccionar</option>{camiones.map(c => <option key={c.id} value={c.id}>{c.placa}</option>)}</Sel></Field>
@@ -151,7 +172,7 @@ const Viajes = ({ viajes, setViajes, camiones, setCamiones, conductores, cliente
             <input type="checkbox" id="pag" checked={form.pagado || false} onChange={e => s({ pagado:e.target.checked })} style={{ width:"14px", height:"14px", accentColor:C.accent }}/>
             <label htmlFor="pag" style={{ fontSize:"12px", color:C.textSecondary, cursor:"pointer" }}>Flete cobrado</label>
           </div>
-          <Button onClick={save_}>{modal === "new" ? "Registrar" : "Guardar"}</Button>
+          <Button onClick={save_} disabled={guardando}>{modal === "new" ? "Registrar" : "Guardar"}</Button>
         </Modal>
       )}
     </div>

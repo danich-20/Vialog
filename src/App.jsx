@@ -10,6 +10,7 @@ import Conductores from './components/Conductores'
 import Camiones from './components/Camiones'
 import Clientes from './components/Clientes'
 import Pagos from './components/Pagos'
+import Comisiones from './components/Comisiones'
 import AIChat from './components/AIChat'
 import Login from './components/Login'
 import Ic from './components/ui/Icons'
@@ -21,6 +22,7 @@ import CamionesT from './components/tonelaje/Camiones'
 import ConductoresT from './components/tonelaje/Conductores'
 import Rutas from './components/tonelaje/Rutas'
 import PagosT from './components/tonelaje/Pagos'
+import ComisionesT from './components/tonelaje/Comisiones'
 import MantenimientoT from './components/tonelaje/Mantenimiento'
 import AIChatT from './components/tonelaje/AIChat'
 
@@ -40,6 +42,7 @@ export default function App() {
   const [mantenimientos, setMantenimientos] = useState([])
   const [clientes, setClientes] = useState([])
   const [pagos, setPagos] = useState([])
+  const [pagosComision, setPagosComision] = useState([])
 
   // --- Datos modo tonelaje ---
   const [camionesT, setCamionesT] = useState([])
@@ -49,6 +52,7 @@ export default function App() {
   const [rutasT, setRutasT] = useState([])
   const [mantenimientosT, setMantenimientosT] = useState([])
   const [pagosT, setPagosT] = useState([])
+  const [pagosComisionT, setPagosComisionT] = useState([])
 
 
   useEffect(() => {
@@ -64,7 +68,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     const cargar = async () => {
-      const [c, d, v, g, m, cl, pg, cT, dT, vT, gT, rT, mT, pgT] = await Promise.all([
+      const [c, d, v, g, m, cl, pg, cT, dT, vT, gT, rT, mT, pgT, pc, pcT] = await Promise.all([
         supabase.from('camiones').select('*'),
         supabase.from('conductores').select('*'),
         supabase.from('viajes').select('*'),
@@ -79,6 +83,8 @@ export default function App() {
         supabase.from('rutas_tonelaje').select('*'),
         supabase.from('mantenimientos_tonelaje').select('*'),
         supabase.from('pagos_tonelaje').select('*'),
+        supabase.from('pagos_comision').select('*'),
+        supabase.from('pagos_comision_tonelaje').select('*'),
       ])
       setCamiones(c.data || [])
       setConductores(d.data || [])
@@ -94,6 +100,8 @@ export default function App() {
       setRutasT(rT.data || [])
       setMantenimientosT(mT.data || [])
       setPagosT(pgT.data || [])
+      setPagosComision(pc.data || [])
+      setPagosComisionT(pcT.data || [])
       setLoading(false)
     }
     cargar()
@@ -113,6 +121,7 @@ export default function App() {
     { id:"gastos",        label:"Gastos",    icon:"money"     },
     { id:"mantenimiento", label:"Mant.",     icon:"wrench"    },
     { id:"pagos",         label:"Pagos",     icon:"wallet"    },
+    { id:"comisiones",    label:"Comisiones", icon:"money"    },
     { id:"conductores",   label:"Conductores", icon:"users"   },
     { id:"camiones",      label:"Flota",     icon:"truck"     },
     { id:"clientes",      label:"Clientes",  icon:"clients"   },
@@ -125,6 +134,7 @@ export default function App() {
     { id:"gastos",        label:"Gastos",    icon:"money"     },
     { id:"mantenimiento", label:"Mant.",     icon:"wrench"    },
     { id:"pagos",         label:"Pagos",     icon:"wallet"     },
+    { id:"comisiones",    label:"Comisiones", icon:"money"    },
     { id:"conductores",   label:"Choferes",  icon:"users"     },
     { id:"rutas",         label:"Rutas",     icon:"clients"   },
     { id:"camiones",      label:"Flota",     icon:"truck" },
@@ -212,7 +222,7 @@ export default function App() {
       )}
 
       {/* BOTTOM NAV */}
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:99, background:C.bg1, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-around", padding:"5px 0 7px" }}>
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:99, background:C.bg1, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-around", padding:"5px 0 calc(7px + env(safe-area-inset-bottom))" }}>
         {nav.slice(0,5).map(n => (
           <button key={n.id} onClick={() => setTab(n.id)} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:"2px", background:"none", border:"none", color:tab===n.id?C.accentLight:C.textMuted, cursor:"pointer", padding:"3px 5px", position:"relative" }}>
             <Ic n={n.icon} s={18}/>
@@ -225,7 +235,7 @@ export default function App() {
       </div>
 
       {/* CONTENIDO */}
-      <div style={{ maxWidth:"840px", margin:"0 auto", padding:"16px 13px 86px" }}>
+      <div style={{ maxWidth:"840px", margin:"0 auto", padding:"16px 13px calc(124px + env(safe-area-inset-bottom))" }}>
         {modo === "flete" && (
           <>
             {tab === "dashboard"     && <Dashboard     viajes={viajes} gastos={gastos} conductores={conductores} camiones={camiones} mantenimientos={mantenimientos} pagos={pagos}/>}
@@ -233,7 +243,8 @@ export default function App() {
             {tab === "gastos"        && <Gastos        gastos={gastos} setGastos={setGastos} viajes={viajes} camiones={camiones}/>}
             {tab === "mantenimiento" && <Mantenimiento mantenimientos={mantenimientos} setMantenimientos={setMantenimientos} camiones={camiones}/>}
             {tab === "pagos"         && <Pagos         viajes={viajes} clientes={clientes} conductores={conductores} camiones={camiones} pagos={pagos} setPagos={setPagos}/>}
-            {tab === "conductores"   && <Conductores   conductores={conductores} setConductores={setConductores} viajes={viajes}/>}
+            {tab === "comisiones"    && <Comisiones    conductores={conductores} viajes={viajes} pagos={pagos} camiones={camiones} pagosComision={pagosComision} setPagosComision={setPagosComision}/>}
+            {tab === "conductores"   && <Conductores   conductores={conductores} setConductores={setConductores} viajes={viajes} pagos={pagos} pagosComision={pagosComision}/>}
             {tab === "camiones"      && <Camiones      camiones={camiones} setCamiones={setCamiones} viajes={viajes}/>}
             {tab === "clientes"      && <Clientes      clientes={clientes} setClientes={setClientes} viajes={viajes}/>}
             {tab === "cuenta"        && <Cuenta user={user}/>}
@@ -247,9 +258,10 @@ export default function App() {
             {tab === "gastos"        && <GastosT        gastos={gastosT} setGastos={setGastosT} camiones={camionesT}/>}
             {tab === "mantenimiento" && <MantenimientoT mantenimientos={mantenimientosT} setMantenimientos={setMantenimientosT} camiones={camionesT}/>}
             {tab === "camiones"      && <CamionesT      camiones={camionesT} setCamiones={setCamionesT} viajes={viajesT}/>}
-            {tab === "conductores"   && <ConductoresT   conductores={conductoresT} setConductores={setConductoresT} viajes={viajesT}/>}
+            {tab === "conductores"   && <ConductoresT   conductores={conductoresT} setConductores={setConductoresT} viajes={viajesT} pagos={pagosT} pagosComision={pagosComisionT}/>}
             {tab === "rutas"         && <Rutas          rutas={rutasT} setRutas={setRutasT}/>}
             {tab === "pagos" && <PagosT viajes={viajesT} pagos={pagosT} setPagos={setPagosT} conductores={conductoresT} camiones={camionesT} rutas={rutasT}/>}
+            {tab === "comisiones"    && <ComisionesT   conductores={conductoresT} viajes={viajesT} rutas={rutasT} pagos={pagosT} camiones={camionesT} pagosComision={pagosComisionT} setPagosComision={setPagosComisionT}/>}
             {tab === "cuenta"        && <Cuenta user={user}/>}
           </>
         )}

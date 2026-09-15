@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { C } from '../lib/colors'
-import { uid, fmt, today, calcEstado } from '../lib/helpers'
+import { avisar, confirmar } from '../lib/dialogo'
+import { uid, fmtNum, today, calcEstado } from '../lib/helpers'
 import { TIPOS_MANT } from '../lib/constants'
 import Badge from './ui/Badge'
 import Button from './ui/Button'
@@ -14,6 +15,7 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
   const [historial, setHistorial] = useState([])
   const [verHistorial, setVerHistorial] = useState(false)
   const [form, setForm] = useState({})
+  const [guardando, setGuardando] = useState(false)
   const s = f => setForm(p => ({ ...p, ...f }))
 
   useEffect(() => {
@@ -27,22 +29,31 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
   const openEdit = m => { setForm({ ...m }); setModal("edit") }
 
   const save_ = async () => {
-    if (!form.camion_id || !form.tipo) return alert("Completa los campos obligatorios")
-    if (modal === "new") {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase.from('mantenimientos').insert([{ ...form, user_id: user.id }]).select()
-      setMantenimientos(p => [...p, data[0]])
-    } else {
-      await supabase.from('mantenimientos').update(form).eq('id', form.id)
-      setMantenimientos(p => p.map(m => m.id === form.id ? form : m))
+    if (guardando) return
+    setGuardando(true)
+    try {
+      if (!form.camion_id || !form.tipo) return avisar("Completa los campos obligatorios")
+      if (modal === "new") {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('mantenimientos').insert([{ ...form, user_id: user.id }]).select()
+        if (error || !data?.[0]) return avisar('No se pudo guardar: ' + (error?.message || 'intenta de nuevo'))
+        setMantenimientos(p => [...p, data[0]])
+      } else {
+        await supabase.from('mantenimientos').update(form).eq('id', form.id)
+        setMantenimientos(p => p.map(m => m.id === form.id ? form : m))
+      }
+      setModal(null)
+    } finally {
+      setGuardando(false)
     }
-    setModal(null)
   }
 
   const del = async id => {
-    if (!confirm("¿Eliminar?")) return
-    await supabase.from('mantenimientos').delete().eq('id', id)
+    if (!await confirmar("¿Eliminar?")) return
+    const previos = mantenimientos
     setMantenimientos(p => p.filter(m => m.id !== id))
+    const { error } = await supabase.from('mantenimientos').delete().eq('id', id)
+    if (error) { setMantenimientos(previos); return avisar('No se pudo eliminar: ' + error.message) }
   }
 
   const marcarHecho = async m => {
@@ -104,7 +115,7 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
               <div key={h.id} style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"9px", padding:"11px 13px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px" }}>
                 <div>
                   <div style={{ fontSize:"12px", fontWeight:600, color:C.textPrimary, marginBottom:"2px" }}>{h.tipo}</div>
-                  <div style={{ fontSize:"10px", color:C.textMuted }}>{cam?.placa} · {h.fecha_realizado} · {fmt(h.km_realizado)} km</div>
+                  <div style={{ fontSize:"10px", color:C.textMuted }}>{cam?.placa} · {h.fecha_realizado} · {fmtNum(h.km_realizado)} km</div>
                   {h.nota && <div style={{ fontSize:"10px", color:C.yellow }}>{h.nota}</div>}
                 </div>
                 <Badge label="Realizado" color="green"/>
@@ -117,7 +128,7 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
           <div key={cam.id} style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"9px", overflow:"hidden" }}>
             <div style={{ padding:"10px 13px", borderBottom:`1px solid ${C.border}`, background:C.bg2, display:"flex", alignItems:"center", gap:"7px" }}>
               <span style={{ fontSize:"13px", fontWeight:700, color:C.accentLight }}>{cam.placa}</span>
-              <span style={{ fontSize:"11px", color:C.textMuted }}>{cam.marca} {cam.modelo} · {fmt(cam.km)} km</span>
+              <span style={{ fontSize:"11px", color:C.textMuted }}>{cam.marca} {cam.modelo} · {fmtNum(cam.km)} km</span>
             </div>
             {items.length === 0 && <div style={{ padding:"12px 13px", color:C.textMuted, fontSize:"12px" }}>Sin tareas</div>}
             {items.map(m => {
@@ -129,8 +140,8 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
                       <span style={{ fontSize:"12px", fontWeight:600, color:C.textPrimary }}>{m.tipo}</span>
                       <Badge label={el[est] || est} color={ec[est] || "gray"}/>
                     </div>
-                    <div style={{ fontSize:"10px", color:C.textMuted }}>Último: {m.fecha_ultimo || "—"}{m.km_ultimo ? ` · ${fmt(m.km_ultimo)} km` : ""}</div>
-                    <div style={{ fontSize:"10px", color:C.textMuted }}>Próximo: {m.proxima_fecha || "—"}{m.proximo_km ? ` · ${fmt(m.proximo_km)} km` : ""}</div>
+                    <div style={{ fontSize:"10px", color:C.textMuted }}>Último: {m.fecha_ultimo || "—"}{m.km_ultimo ? ` · ${fmtNum(m.km_ultimo)} km` : ""}</div>
+                    <div style={{ fontSize:"10px", color:C.textMuted }}>Próximo: {m.proxima_fecha || "—"}{m.proximo_km ? ` · ${fmtNum(m.proximo_km)} km` : ""}</div>
                     {m.nota && <div style={{ fontSize:"10px", color:C.yellow, marginTop:"1px" }}>{m.nota}</div>}
                   </div>
                   <div style={{ display:"flex", gap:"4px", alignItems:"center" }}>
@@ -163,7 +174,7 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
               {TIPOS_MANT.map(t => <option key={t}>{t}</option>)}
             </Sel>
           </Field>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 11px" }}>
+          <div className="form-grid">
             <Field label="Último realizado"><Inp type="date" value={form.fecha_ultimo || ""} onChange={e => s({ fecha_ultimo:e.target.value })}/></Field>
             <Field label="Km en último"><Inp type="number" value={form.km_ultimo || ""} onChange={e => s({ km_ultimo:+e.target.value })}/></Field>
             <Field label="Intervalo (km)"><Inp type="number" value={form.intervalo_km || ""} onChange={e => s({ intervalo_km:+e.target.value })}/></Field>
@@ -172,7 +183,7 @@ const Mantenimiento = ({ mantenimientos, setMantenimientos, camiones }) => {
             <Field label="Próximo km"><Inp type="number" value={form.proximo_km || ""} onChange={e => s({ proximo_km:+e.target.value })}/></Field>
           </div>
           <Field label="Notas"><Inp value={form.nota || ""} onChange={e => s({ nota:e.target.value })}/></Field>
-          <Button onClick={save_}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
+          <Button onClick={save_} disabled={guardando}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
         </Modal>
       )}
     </div>

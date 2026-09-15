@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
 import { C } from '../lib/colors'
-import { uid, fmt } from '../lib/helpers'
+import { avisar, confirmar } from '../lib/dialogo'
+import { uid, fmt, fmtNum } from '../lib/helpers'
 import Badge from './ui/Badge'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
@@ -11,6 +12,7 @@ import { Inp, Field } from './ui/Input'
 const Camiones = ({ camiones, setCamiones, viajes }) => {
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState({})
+  const [guardando, setGuardando] = useState(false)
   const s = f => setForm(p => ({ ...p, ...f }))
 
   const openNew = () => {
@@ -20,22 +22,31 @@ const Camiones = ({ camiones, setCamiones, viajes }) => {
   const openEdit = c => { setForm({ ...c }); setModal("edit") }
 
   const save_ = async () => {
-    if (!form.placa) return alert("La placa es obligatoria")
-    if (modal === "new") {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase.from('camiones').insert([{ ...form, user_id: user.id }]).select()
-      setCamiones(p => [...p, data[0]])
-    } else {
-      await supabase.from('camiones').update(form).eq('id', form.id)
-      setCamiones(p => p.map(c => c.id === form.id ? form : c))
+    if (guardando) return
+    setGuardando(true)
+    try {
+      if (!form.placa) return avisar("La placa es obligatoria")
+      if (modal === "new") {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('camiones').insert([{ ...form, user_id: user.id }]).select()
+        if (error || !data?.[0]) return avisar('No se pudo guardar: ' + (error?.message || 'intenta de nuevo'))
+        setCamiones(p => [...p, data[0]])
+      } else {
+        await supabase.from('camiones').update(form).eq('id', form.id)
+        setCamiones(p => p.map(c => c.id === form.id ? form : c))
+      }
+      setModal(null)
+    } finally {
+      setGuardando(false)
     }
-    setModal(null)
   }
 
   const del = async id => {
-    if (!confirm("¿Eliminar?")) return
-    await supabase.from('camiones').delete().eq('id', id)
+    if (!await confirmar("¿Eliminar?")) return
+    const previos = camiones
     setCamiones(p => p.filter(c => c.id !== id))
+    const { error } = await supabase.from('camiones').delete().eq('id', id)
+    if (error) { setCamiones(previos); return avisar('No se pudo eliminar: ' + error.message) }
   }
 
   return (
@@ -60,7 +71,7 @@ const Camiones = ({ camiones, setCamiones, viajes }) => {
                   <Badge label={c.activo ? "Activo" : "Inactivo"} color={c.activo ? "green" : "gray"}/>
                 </div>
                 <div style={{ fontSize:"12px", color:C.textSecondary }}>{c.marca} {c.modelo} {c.año}</div>
-                <div style={{ fontSize:"10px", color:C.textMuted, marginTop:"1px" }}>{fmt(c.km)} km · {mis.length} viajes</div>
+                <div style={{ fontSize:"10px", color:C.textMuted, marginTop:"1px" }}>{fmtNum(c.km)} km · {mis.length} viajes</div>
               </div>
               <div style={{ textAlign:"right" }}>
                 <div style={{ fontSize:"14px", fontWeight:700, color:C.textPrimary }}>${fmt(ing)}</div>
@@ -77,7 +88,7 @@ const Camiones = ({ camiones, setCamiones, viajes }) => {
 
       {modal && (
         <Modal title={modal === "new" ? "Nueva unidad" : "Editar unidad"} onClose={() => setModal(null)}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 11px" }}>
+          <div className="form-grid">
             <Field label="Placa *"><Inp value={form.placa || ""} onChange={e => s({ placa:e.target.value.toUpperCase() })}/></Field>
             <Field label="Año"><Inp type="number" value={form.año || ""} onChange={e => s({ año:+e.target.value })}/></Field>
             <Field label="Marca"><Inp value={form.marca || ""} onChange={e => s({ marca:e.target.value })}/></Field>
@@ -88,7 +99,7 @@ const Camiones = ({ camiones, setCamiones, viajes }) => {
             <input type="checkbox" id="av" checked={form.activo ?? true} onChange={e => s({ activo:e.target.checked })} style={{ width:"13px", height:"13px", accentColor:C.accent }}/>
             <label htmlFor="av" style={{ fontSize:"12px", color:C.textSecondary, cursor:"pointer" }}>Activa</label>
           </div>
-          <Button onClick={save_}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
+          <Button onClick={save_} disabled={guardando}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
         </Modal>
       )}
     </div>

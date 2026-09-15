@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../../supabase'
 import { C } from '../../lib/colors'
+import { avisar, confirmar } from '../../lib/dialogo'
 import { uid, fmt } from '../../lib/helpers'
 import Badge from '../ui/Badge'
 import Button from '../ui/Button'
@@ -11,28 +12,38 @@ import { Inp, Field } from '../ui/Input'
 const Camiones = ({ camiones, setCamiones, viajes }) => {
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState({})
+  const [guardando, setGuardando] = useState(false)
   const s = f => setForm(p => ({ ...p, ...f }))
 
   const openNew = () => { setForm({ id:uid(), activo:true }); setModal("new") }
   const openEdit = c => { setForm({ ...c }); setModal("edit") }
 
   const save_ = async () => {
-    if (!form.numero) return alert("El número es obligatorio")
-    const { data: { user } } = await supabase.auth.getUser()
-    if (modal === "new") {
-      const { data } = await supabase.from('camiones_tonelaje').insert([{ ...form, user_id: user.id }]).select()
-      setCamiones(p => [...p, data[0]])
-    } else {
-      await supabase.from('camiones_tonelaje').update(form).eq('id', form.id)
-      setCamiones(p => p.map(c => c.id === form.id ? form : c))
+    if (guardando) return
+    setGuardando(true)
+    try {
+      if (!form.numero) return avisar("El número es obligatorio")
+      const { data: { user } } = await supabase.auth.getUser()
+      if (modal === "new") {
+        const { data, error } = await supabase.from('camiones_tonelaje').insert([{ ...form, user_id: user.id }]).select()
+        if (error || !data?.[0]) return avisar('No se pudo guardar: ' + (error?.message || 'intenta de nuevo'))
+        setCamiones(p => [...p, data[0]])
+      } else {
+        await supabase.from('camiones_tonelaje').update(form).eq('id', form.id)
+        setCamiones(p => p.map(c => c.id === form.id ? form : c))
+      }
+      setModal(null)
+    } finally {
+      setGuardando(false)
     }
-    setModal(null)
   }
 
   const del = async id => {
-    if (!confirm("¿Eliminar?")) return
-    await supabase.from('camiones_tonelaje').delete().eq('id', id)
+    if (!await confirmar("¿Eliminar?")) return
+    const previos = camiones
     setCamiones(p => p.filter(c => c.id !== id))
+    const { error } = await supabase.from('camiones_tonelaje').delete().eq('id', id)
+    if (error) { setCamiones(previos); return avisar('No se pudo eliminar: ' + error.message) }
   }
 
   return (
@@ -74,7 +85,7 @@ const Camiones = ({ camiones, setCamiones, viajes }) => {
 
       {modal && (
         <Modal title={modal === "new" ? "Nueva unidad" : "Editar unidad"} onClose={() => setModal(null)}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 11px" }}>
+          <div className="form-grid">
             <Field label="Número *"><Inp value={form.numero || ""} onChange={e => s({ numero:e.target.value })}/></Field>
             <Field label="Año"><Inp type="number" value={form.año || ""} onChange={e => s({ año:+e.target.value })}/></Field>
             <Field label="Marca"><Inp value={form.marca || ""} onChange={e => s({ marca:e.target.value })}/></Field>
@@ -84,7 +95,7 @@ const Camiones = ({ camiones, setCamiones, viajes }) => {
             <input type="checkbox" id="av" checked={form.activo ?? true} onChange={e => s({ activo:e.target.checked })} style={{ width:"13px", height:"13px", accentColor:C.accent }}/>
             <label htmlFor="av" style={{ fontSize:"12px", color:C.textSecondary, cursor:"pointer" }}>Activa</label>
           </div>
-          <Button onClick={save_}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
+          <Button onClick={save_} disabled={guardando}>{modal === "new" ? "Agregar" : "Guardar"}</Button>
         </Modal>
       )}
     </div>

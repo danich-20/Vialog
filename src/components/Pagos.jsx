@@ -1,49 +1,79 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import jsPDF from 'jspdf'
 import { supabase } from '../supabase'
 import { C } from '../lib/colors'
-import { uid, fmt, today } from '../lib/helpers'
+import { avisar, confirmar } from '../lib/dialogo'
+import { uid, fmt, today, nombreMes, coincide, enRango } from '../lib/helpers'
 import { METODOS } from '../lib/constants'
+import { subirArchivo, borrarArchivo } from '../lib/upload'
 import Badge from './ui/Badge'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
 import Ic from './ui/Icons'
-import { Inp, Sel, Field } from './ui/Input'
+import PeriodoPDF from './ui/PeriodoPDF'
+import { Inp, Sel, Field, Archivo, Buscador } from './ui/Input'
 
 const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => {
-  const [modal, setModal] = useState(false)
+  const [modal, setModal] = useState(null)
   const [form, setForm] = useState({})
+  const [guardando, setGuardando] = useState(false)
+  const [busca, setBusca] = useState("")
+  const [modalPDF, setModalPDF] = useState(false)
+  // Arranca en "todo": filtrar por mes escondería saldos viejos por cobrar
+  const [mes, setMes] = useState("todo")
   const s = f => setForm(p => ({ ...p, ...f }))
 
   const openNew = () => {
     setForm({ id:uid(), fecha:today(), monto_usd:0, monto_bs:0, tasa:0 })
-    setModal(true)
+    setModal("new")
   }
+  const openEdit = p => { setForm({ ...p }); setModal("edit") }
 
   const save_ = async () => {
-    if (!form.viaje_id || !form.monto_usd) return alert("Completa los campos obligatorios")
-    const viaje = viajes.find(v => v.id === form.viaje_id)
-    const cliente = clientes.find(c => c.id === viaje?.cliente_id)
-    const conductor = conductores.find(c => c.id === viaje?.conductor_id)
-    const camion = camiones.find(c => c.id === viaje?.camion_id)
-    const pago = {
-      ...form,
-      cliente_id: cliente?.id || '',
-      conductor: conductor?.nombre || '',
-      camion: camion?.placa || '',
+    if (guardando) return
+    setGuardando(true)
+    try {
+      if (!form.viaje_id || !form.monto_usd) return avisar("Completa los campos obligatorios")
+      const viaje = viajes.find(v => v.id === form.viaje_id)
+      const cliente = clientes.find(c => c.id === viaje?.cliente_id)
+      const conductor = conductores.find(c => c.id === viaje?.conductor_id)
+      const camion = camiones.find(c => c.id === viaje?.camion_id)
+      const { comprobanteFile, ...rest } = form
+      let comprobante_url = rest.comprobante_url || null
+      if (comprobanteFile) {
+        comprobante_url = await subirArchivo(comprobanteFile, 'pagos')
+        if (rest.comprobante_url) await borrarArchivo(rest.comprobante_url)
+      }
+      const pago = {
+        ...rest,
+        comprobante_url,
+        cliente_id: cliente?.id || '',
+        conductor: conductor?.nombre || '',
+        camion: camion?.placa || '',
+      }
+      if (modal === "new") {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('pagos').insert([{ ...pago, user_id: user.id }]).select()
+        if (error || !data?.[0]) return avisar('No se pudo guardar: ' + (error?.message || 'intenta de nuevo'))
+        setPagos(p => [...p, data[0]])
+      } else {
+        await supabase.from('pagos').update(pago).eq('id', pago.id)
+        setPagos(p => p.map(x => x.id === pago.id ? pago : x))
+      }
+      setModal(null)
+    } finally {
+      setGuardando(false)
     }
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data } = await supabase.from('pagos').insert([{ ...pago, user_id: user.id }]).select()
-    setPagos(p => [...p, data[0]])
-    setModal(false)
   }
 
-  const del = async id => {
-    if (!confirm("¿Eliminar pago?")) return
-    await supabase.from('pagos').delete().eq('id', id)
-    setPagos(p => p.filter(x => x.id !== id))
+  const del = async p => {
+    if (!await confirmar("¿Eliminar pago?")) return
+    const previos = pagos
+    setPagos(x => x.filter(y => y.id !== p.id))
+    const { error } = await supabase.from('pagos').delete().eq('id', p.id)
+    if (error) { setPagos(previos); return avisar('No se pudo eliminar: ' + error.message) }
+    await borrarArchivo(p.comprobante_url)
   }
-
-  const total = pagos.reduce((s,p) => s + p.monto_usd, 0)
 
   // pagos agrupados por viaje
   const porViaje = viajes.map(v => {
@@ -53,6 +83,81 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
     return { viaje:v, pagos:misPagos, totalPagado, pendiente }
   }).filter(x => x.pagos.length > 0 || x.viaje.flete > 0)
 
+  const meses = [...new Set(viajes.map(v => v.salida?.slice(0,7)).filter(Boolean))].sort().reverse()
+
+  const porViajeFiltrado = porViaje
+    .filter(({ viaje }) => mes === "todo" || viaje.salida?.startsWith(mes))
+    .filter(({ viaje, pagos:misPagos }) => coincide(
+      busca,
+      viaje.numero, viaje.origen, viaje.destino,
+      clientes.find(c => c.id === viaje.cliente_id)?.nombre,
+      misPagos.map(p => `${p.referencia || ""} ${p.metodo || ""}`).join(" "),
+    ))
+
+  const total = porViajeFiltrado.reduce((s,x) => s + x.totalPagado, 0)
+
+  // Solo viajes con saldo. Al editar se incluye el ya seleccionado, si no
+  // el select quedaría vacío y al guardar se perdería el viaje_id.
+  const viajesDisponibles = porViaje
+    .filter(x => x.pendiente > 0 || x.viaje.id === form.viaje_id)
+    .sort((a,b) => (b.viaje.salida || "").localeCompare(a.viaje.salida || ""))
+
+  const exportarPDF = rango => {
+    setModalPDF(false)
+    const doc = new jsPDF()
+    doc.setFontSize(16)
+    doc.text("Reporte de Pagos - Chutos", 14, 15)
+    doc.setFontSize(10)
+    doc.text(`Período: ${rango.etiqueta}`, 14, 21)
+    doc.text(`Generado: ${today()}`, 14, 26)
+
+    let y = 37
+    const encabezado = titulo => {
+      doc.setFontSize(13)
+      doc.text(titulo, 14, y)
+      y += 7
+      doc.setFontSize(9)
+      doc.setFont(undefined, "bold")
+      doc.text("Fecha", 14, y)
+      doc.text("Ruta", 42, y)
+      doc.text("Total", 118, y)
+      doc.text("Cobrado", 145, y)
+      doc.text("Pendiente", 172, y)
+      doc.setFont(undefined, "normal")
+      y += 5
+    }
+
+    const filas = lista => {
+      if (lista.length === 0) {
+        doc.text("Sin viajes", 14, y)
+        y += 6
+        return
+      }
+      lista.forEach(x => {
+        if (y > 280) { doc.addPage(); y = 15 }
+        doc.text(x.viaje.salida || "", 14, y)
+        doc.text(`${x.viaje.origen} → ${x.viaje.destino}`.slice(0, 35), 42, y)
+        doc.text(`$${fmt(x.viaje.flete)}`, 118, y)
+        doc.text(`$${fmt(x.totalPagado)}`, 145, y)
+        doc.text(`$${fmt(x.pendiente)}`, 172, y)
+        y += 6
+      })
+    }
+
+    const delPeriodo = porViaje.filter(x => rango.desde || rango.hasta ? enRango(x.viaje.salida, rango) : true)
+    const pendientes = delPeriodo.filter(x => x.pendiente > 0)
+    const cobrados = delPeriodo.filter(x => x.pendiente <= 0)
+
+    encabezado("Viajes pendientes")
+    filas(pendientes)
+    y += 8
+    if (y > 260) { doc.addPage(); y = 15 }
+    encabezado("Viajes cobrados")
+    filas(cobrados)
+
+    doc.save(`pagos_chutos_${today()}.pdf`)
+  }
+
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:"13px" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:"9px" }}>
@@ -60,26 +165,40 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
           <h2 style={{ margin:"0 0 2px", fontSize:"19px", fontWeight:600, color:C.textPrimary }}>Pagos</h2>
           <p style={{ margin:0, color:C.textSecondary, fontSize:"12px" }}>Total cobrado: ${fmt(total)}</p>
         </div>
-        <Button onClick={openNew}><Ic n="plus" s={14}/> Registrar pago</Button>
+        <div style={{ display:"flex", gap:"7px" }}>
+          <Button onClick={() => setModalPDF(true)} variant="ghost"><Ic n="send" s={14}/> Exportar PDF</Button>
+          <Button onClick={openNew}><Ic n="plus" s={14}/> Registrar pago</Button>
+        </div>
       </div>
 
+      <div style={{ display:"flex", alignItems:"center", gap:"6px", flexWrap:"wrap" }}>
+        {["todo", ...meses].map(m => (
+          <button key={m} onClick={() => setMes(m)} style={{ padding:"3px 10px", borderRadius:"20px", border:"1px solid", fontSize:"11px", fontWeight:600, cursor:"pointer", background:mes===m?C.accent:"transparent", color:mes===m?"#fff":C.textMuted, borderColor:mes===m?C.accent:C.border }}>
+            {m === "todo" ? "Todo" : nombreMes(m)}
+          </button>
+        ))}
+      </div>
+
+      <Buscador value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar viaje, ruta, cliente, referencia..."/>
+
       <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
-        {porViaje.map(({ viaje, pagos:misPagos, totalPagado, pendiente }) => {
+        {porViajeFiltrado.length === 0 && <div style={{ color:C.textMuted, textAlign:"center", padding:"36px", fontSize:"12px" }}>Sin resultados</div>}
+        {porViajeFiltrado.map(({ viaje, pagos:misPagos, totalPagado, pendiente }) => {
           const cli = clientes.find(c => c.id === viaje.cliente_id)
           return (
             <div key={viaje.id} style={{ background:C.bg1, border:`1px solid ${C.border}`, borderRadius:"9px", overflow:"hidden" }}>
               <div style={{ padding:"10px 13px", borderBottom:`1px solid ${C.border}`, background:C.bg2, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:"6px" }}>
-                <div>
+                <div style={{ minWidth:0, flex:"1 1 160px" }}>
                   <span style={{ fontSize:"12px", fontWeight:700, color:C.accentLight }}>{viaje.numero}</span>
                   <span style={{ fontSize:"11px", color:C.textMuted, marginLeft:"8px" }}>{viaje.origen} → {viaje.destino}</span>
                   {cli && <span style={{ fontSize:"11px", color:C.textMuted }}> · {cli.nombre}</span>}
                 </div>
-                <div style={{ display:"flex", gap:"10px", alignItems:"center" }}>
+                <div style={{ display:"flex", gap:"10px", alignItems:"center", flexShrink:0, marginLeft:"auto" }}>
                   <div style={{ textAlign:"right" }}>
                     <div style={{ fontSize:"12px", color:C.green, fontWeight:700 }}>Cobrado: ${fmt(totalPagado)}</div>
                     {pendiente > 0 && <div style={{ fontSize:"11px", color:C.yellow }}>Pendiente: ${fmt(pendiente)}</div>}
                   </div>
-                  <div style={{ height:"36px", width:"36px", borderRadius:"50%", background:C.bg3, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <div style={{ height:"36px", width:"36px", flexShrink:0, borderRadius:"50%", background:C.bg3, display:"flex", alignItems:"center", justifyContent:"center" }}>
                     <svg viewBox="0 0 36 36" width="36" height="36">
                       <circle cx="18" cy="18" r="14" fill="none" stroke={C.border} strokeWidth="3"/>
                       <circle cx="18" cy="18" r="14" fill="none" stroke={pendiente <= 0 ? C.green : C.accent} strokeWidth="3"
@@ -100,8 +219,14 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
                     {p.tasa > 0 && <div style={{ fontSize:"10px", color:C.textMuted }}>Bs {fmt(p.monto_bs)} · Tasa {p.tasa}</div>}
                   </div>
                   <div style={{ display:"flex", alignItems:"center", gap:"7px" }}>
+                    {p.comprobante_url && (
+                      <a href={p.comprobante_url} target="_blank" rel="noreferrer" style={{ color:C.blue, display:"flex" }}>
+                        <Ic n="file" s={14}/>
+                      </a>
+                    )}
                     <span style={{ fontSize:"14px", fontWeight:700, color:C.green }}>${fmt(p.monto_usd)}</span>
-                    <Button onClick={() => del(p.id)} variant="danger" small><Ic n="trash" s={12}/></Button>
+                    <Button onClick={() => openEdit(p)} variant="ghost" small><Ic n="edit" s={12}/></Button>
+                    <Button onClick={() => del(p)} variant="danger" small><Ic n="trash" s={12}/></Button>
                   </div>
                 </div>
               ))}
@@ -110,15 +235,26 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
         })}
       </div>
 
+      {modalPDF && <PeriodoPDF onClose={() => setModalPDF(false)} onExportar={exportarPDF}/>}
+
       {modal && (
-        <Modal title="Registrar pago" onClose={() => setModal(false)}>
+        <Modal title={modal === "new" ? "Registrar pago" : "Editar pago"} onClose={() => setModal(null)}>
           <Field label="Viaje *">
             <Sel value={form.viaje_id || ""} onChange={e => s({ viaje_id:e.target.value })}>
               <option value="">Seleccionar</option>
-              {viajes.map(v => <option key={v.id} value={v.id}>{v.numero} – {v.origen}→{v.destino} (${fmt(v.flete)})</option>)}
+              {viajesDisponibles.map(({ viaje: v, pendiente }) => (
+                <option key={v.id} value={v.id}>
+                  {v.numero} – {v.origen}→{v.destino} · Pendiente ${fmt(Math.max(pendiente, 0))}
+                </option>
+              ))}
             </Sel>
+            {viajesDisponibles.length === 0 && (
+              <div style={{ marginTop:"6px", fontSize:"11px", color:C.yellow }}>
+                No hay viajes con saldo pendiente: ya están todos cobrados.
+              </div>
+            )}
           </Field>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 11px" }}>
+          <div className="form-grid">
             <Field label="Monto (USD) *">
               <Inp type="number" value={form.monto_usd || ""} onChange={e => s({ monto_usd:+e.target.value, monto_bs:+((+e.target.value)*(form.tasa||0)).toFixed(2) })}/>
             </Field>
@@ -141,7 +277,15 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
           <Field label="Referencia">
             <Inp value={form.referencia || ""} onChange={e => s({ referencia:e.target.value })}/>
           </Field>
-          <Button onClick={save_}>Registrar pago</Button>
+          <Field label="Comprobante">
+            <Archivo accept="image/*,.pdf" onChange={e => s({ comprobanteFile:e.target.files[0] })}/>
+            {form.comprobante_url && !form.comprobanteFile && (
+              <a href={form.comprobante_url} target="_blank" rel="noreferrer" style={{ display:"inline-flex", alignItems:"center", gap:"5px", marginTop:"7px", fontSize:"11px", color:C.blue }}>
+                <Ic n="file" s={13}/> Ver comprobante actual
+              </a>
+            )}
+          </Field>
+          <Button onClick={save_} disabled={guardando}>{modal === "new" ? "Registrar pago" : "Guardar cambios"}</Button>
         </Modal>
       )}
     </div>
