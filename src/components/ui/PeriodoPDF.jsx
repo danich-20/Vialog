@@ -3,12 +3,24 @@ import { C } from '../../lib/colors'
 import { PERIODOS, calcularRango } from '../../lib/helpers'
 import Button from './Button'
 import Modal from './Modal'
-import { Inp, Field } from './Input'
+import { Inp, Sel, Field } from './Input'
 
-const PeriodoPDF = ({ onClose, onExportar }) => {
+const PeriodoPDF = ({ onClose, onExportar, clientes = null }) => {
   const [tipo, setTipo] = useState("mes")
   const [desde, setDesde] = useState("")
   const [hasta, setHasta] = useState("")
+  const [clienteId, setClienteId] = useState("todos")
+  const [generando, setGenerando] = useState(false)
+
+  const generar = async () => {
+    if (generando) return
+    setGenerando(true)
+    try {
+      await onExportar(calcularRango(tipo, desde, hasta), clienteId)
+    } finally {
+      setGenerando(false)
+    }
+  }
 
   return (
     <Modal title="Exportar PDF" onClose={onClose}>
@@ -33,7 +45,18 @@ const PeriodoPDF = ({ onClose, onExportar }) => {
         </div>
       )}
 
-      <Button onClick={() => onExportar(calcularRango(tipo, desde, hasta))}>Generar PDF</Button>
+      {clientes && (
+        <Field label="Cliente">
+          <Sel value={clienteId} onChange={e => setClienteId(e.target.value)}>
+            <option value="todos">Todos (una página por cliente)</option>
+            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </Sel>
+        </Field>
+      )}
+
+      <Button onClick={generar} disabled={generando}>
+        {generando ? "Generando..." : "Generar PDF"}
+      </Button>
     </Modal>
   )
 }

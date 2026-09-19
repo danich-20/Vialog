@@ -3,9 +3,10 @@ import jsPDF from 'jspdf'
 import { supabase } from '../../supabase'
 import { C } from '../../lib/colors'
 import { avisar, confirmar } from '../../lib/dialogo'
-import { uid, fmt, today, nombreMes, coincide, enRango } from '../../lib/helpers'
+import { uid, fmt, fmtNum, today, nombreMes, coincide, enRango, slug } from '../../lib/helpers'
 import { METODOS } from '../../lib/constants'
 import { subirArchivo, borrarArchivo } from '../../lib/upload'
+import { cargarLogo, membrete, encabezadoDoc, tabla, recuadroTotal, pie } from '../../lib/pdf'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
 import Ic from '../ui/Icons'
@@ -98,60 +99,63 @@ const Pagos = ({ viajes, pagos, setPagos, conductores, camiones, rutas }) => {
 
   const porViajeFiltrado = porViajeMes.filter(x => filtro === "pendientes" ? x.pendiente > 0 : x.pendiente <= 0)
 
-  const exportarPDF = rango => {
+  const exportarPDF = async rango => {
     setModalPDF(false)
-    const doc = new jsPDF()
-    doc.setFontSize(16)
-    doc.text("Reporte de Pagos - Volteos", 14, 15)
-    doc.setFontSize(10)
-    doc.text(`Período: ${rango.etiqueta}`, 14, 21)
-    doc.text(`Generado: ${today()}`, 14, 26)
+    const logo = await cargarLogo()
+    const doc = new jsPDF({ unit: 'mm', format: 'letter' })
 
-    let y = 37
-    const encabezado = titulo => {
-      doc.setFontSize(13)
-      doc.text(titulo, 14, y)
-      y += 7
-      doc.setFontSize(9)
-      doc.setFont(undefined, "bold")
-      doc.text("Fecha", 14, y)
-      doc.text("Ruta/Destino", 42, y)
-      doc.text("Total", 118, y)
-      doc.text("Cobrado", 145, y)
-      doc.text("Pendiente", 172, y)
-      doc.setFont(undefined, "normal")
-      y += 5
-    }
+    const delPeriodo = porViaje.filter(x => (rango.desde || rango.hasta) ? enRango(x.viaje.fecha, rango) : true)
 
-    const filas = lista => {
-      if (lista.length === 0) {
-        doc.text("Sin viajes", 14, y)
-        y += 6
-        return
-      }
-      lista.forEach(x => {
-        if (y > 280) { doc.addPage(); y = 15 }
-        doc.text(x.viaje.fecha || "", 14, y)
-        doc.text((x.ruta?.nombre || "Sin ruta").slice(0, 35), 42, y)
-        doc.text(`$${fmt(x.viaje.ingreso_bruto)}`, 118, y)
-        doc.text(`$${fmt(x.cobrado)}`, 145, y)
-        doc.text(`$${fmt(x.pendiente)}`, 172, y)
-        y += 6
-      })
-    }
+    let y = membrete(doc, logo)
+    y = encabezadoDoc(doc, y, "Reporte de cobranza - Volteos", [
+      ["Período:", rango.etiqueta],
+      ["Viajes:", delPeriodo.length],
+    ])
 
-    const delPeriodo = porViaje.filter(x => rango.desde || rango.hasta ? enRango(x.viaje.fecha, rango) : true)
+    const cols = [
+      { titulo:"FECHA",     ancho:22 },
+      { titulo:"RUTA",      ancho:54 },
+      { titulo:"UNIDAD",    ancho:20 },
+      { titulo:"TON",       ancho:18, align:"right" },
+      { titulo:"INGRESO",   ancho:24, align:"right" },
+      { titulo:"COBRADO",   ancho:24, align:"right" },
+      { titulo:"PENDIENTE", ancho:26, align:"right", negrita:true },
+    ]
+
+    const filasDe = lista => lista
+      .sort((a,b) => (a.viaje.fecha || "").localeCompare(b.viaje.fecha || ""))
+      .map(x => [
+        x.viaje.fecha || "",
+        x.ruta?.nombre || "Sin ruta",
+        x.cam ? `U-${x.cam.numero}` : "",
+        fmtNum(x.viaje.toneladas),
+        fmt(x.viaje.ingreso_bruto),
+        fmt(x.cobrado),
+        fmt(Math.max(x.pendiente, 0)),
+      ])
+
+    const totalesDe = lista => ["", "", "", "TOTALES",
+      fmt(lista.reduce((s,x) => s + (x.viaje.ingreso_bruto || 0), 0)),
+      fmt(lista.reduce((s,x) => s + x.cobrado, 0)),
+      fmt(lista.reduce((s,x) => s + Math.max(x.pendiente, 0), 0))]
+
     const pendientes = delPeriodo.filter(x => x.pendiente > 0)
     const cobrados = delPeriodo.filter(x => x.pendiente <= 0)
 
-    encabezado("Viajes pendientes")
-    filas(pendientes)
-    y += 8
-    if (y > 260) { doc.addPage(); y = 15 }
-    encabezado("Viajes cobrados")
-    filas(cobrados)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+    doc.text("POR COBRAR", 14, y); y += 3
+    y = tabla(doc, y, cols, filasDe(pendientes), { vacio:"Nada pendiente en este período", totales: pendientes.length ? totalesDe(pendientes) : null })
 
-    doc.save(`pagos_volteos_${today()}.pdf`)
+    y += 4
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+    doc.setTextColor(26, 27, 29)
+    doc.text("COBRADOS", 14, y); y += 3
+    y = tabla(doc, y, cols, filasDe(cobrados), { vacio:"Sin viajes cobrados en este período", totales: cobrados.length ? totalesDe(cobrados) : null })
+
+    recuadroTotal(doc, y, "Total por cobrar", pendientes.reduce((s,x) => s + Math.max(x.pendiente, 0), 0))
+
+    pie(doc, today())
+    doc.save(`cobranza-volteos_${slug(rango.corto)}.pdf`)
   }
 
   return (

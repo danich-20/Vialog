@@ -8,16 +8,34 @@ const Login = ({ onLogin }) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Supabase distingue varios motivos de fallo. Mostrarlos todos como
+  // "contraseña incorrecta" deja al usuario sin saber qué arreglar.
+  const motivo = error => {
+    const cod = error.code || ''
+    if (cod === 'invalid_credentials') return 'Correo o contraseña incorrectos'
+    if (cod === 'email_not_confirmed') return 'Falta confirmar el correo. Revisa tu bandeja de entrada.'
+    if (cod === 'over_request_rate_limit' || error.status === 429) return 'Demasiados intentos. Espera un minuto y vuelve a probar.'
+    if (cod === 'user_not_found') return 'No existe una cuenta con ese correo'
+    return error.message || 'No se pudo iniciar sesión'
+  }
+
   const submit = async () => {
     if (!email || !password) return setError('Completa los campos')
     setLoading(true)
     setError('')
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError('Correo o contraseña incorrectos')
+    try {
+      // El teclado del teléfono suele agregar un espacio o poner mayúscula inicial
+      const correo = email.trim().toLowerCase()
+      const { data, error } = await supabase.auth.signInWithPassword({ email: correo, password })
+      if (error) {
+        setError(motivo(error))
+        setLoading(false)
+      } else {
+        onLogin(data.user)
+      }
+    } catch {
+      setError('Sin conexión con el servidor. Revisa tu internet.')
       setLoading(false)
-    } else {
-      onLogin(data.user)
     }
   }
 
@@ -37,6 +55,11 @@ const Login = ({ onLogin }) => {
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && submit()}
             placeholder="tucorreo@gmail.com"
+            inputMode="email"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             style={{ width:"100%", background:C.bg0, border:`1px solid ${C.border}`, borderRadius:"7px", padding:"9px 11px", color:C.textPrimary, fontSize:"13px", outline:"none", boxSizing:"border-box" }}
           />
         </div>
@@ -49,6 +72,10 @@ const Login = ({ onLogin }) => {
             onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && submit()}
             placeholder="••••••••"
+            autoComplete="current-password"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             style={{ width:"100%", background:C.bg0, border:`1px solid ${C.border}`, borderRadius:"7px", padding:"9px 11px", color:C.textPrimary, fontSize:"13px", outline:"none", boxSizing:"border-box" }}
           />
         </div>

@@ -21,6 +21,9 @@ export const nombreMes = ym => {
 
 export const norm = s => (s ?? "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
+// Texto apto para nombre de archivo: sin acentos, espacios ni signos
+export const slug = s => norm(s).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "sin-nombre";
+
 // Busca todas las palabras de la consulta dentro de los campos dados, sin acentos
 export const coincide = (consulta, ...campos) => {
   const q = norm(consulta).trim();
@@ -38,24 +41,29 @@ export const PERIODOS = [
   { id: "rango", label: "Rango personalizado" },
 ];
 
+// Devuelve además "corto": la versión del período que va en el nombre del archivo
 export const calcularRango = (id, desde, hasta) => {
   const hoy = new Date();
   const a = hoy.getFullYear();
   const m = hoy.getMonth();
-  if (id === "mes") return { desde: iso(new Date(a, m, 1)), hasta: iso(new Date(a, m + 1, 0)), etiqueta: `${MESES[m]} ${a}` };
+  if (id === "mes") {
+    return { desde: iso(new Date(a, m, 1)), hasta: iso(new Date(a, m + 1, 0)), etiqueta: `${MESES[m]} ${a}`, corto: `${MESES[m]}-${a}` };
+  }
   if (id === "mesPasado") {
     const ini = new Date(a, m - 1, 1);
-    return { desde: iso(ini), hasta: iso(new Date(a, m, 0)), etiqueta: `${MESES[ini.getMonth()]} ${ini.getFullYear()}` };
+    return { desde: iso(ini), hasta: iso(new Date(a, m, 0)), etiqueta: `${MESES[ini.getMonth()]} ${ini.getFullYear()}`, corto: `${MESES[ini.getMonth()]}-${ini.getFullYear()}` };
   }
   if (id === "semana") {
     const corrimiento = (hoy.getDay() + 6) % 7;
     const lunes = new Date(a, m, hoy.getDate() - corrimiento);
     const domingo = new Date(a, m, hoy.getDate() - corrimiento + 6);
-    return { desde: iso(lunes), hasta: iso(domingo), etiqueta: `Semana del ${iso(lunes)}` };
+    return { desde: iso(lunes), hasta: iso(domingo), etiqueta: `Semana del ${iso(lunes)}`, corto: `semana-${iso(lunes)}` };
   }
-  if (id === "anio") return { desde: `${a}-01-01`, hasta: `${a}-12-31`, etiqueta: `Año ${a}` };
-  if (id === "rango") return { desde: desde || "", hasta: hasta || "", etiqueta: `${desde || "inicio"} a ${hasta || "hoy"}` };
-  return { desde: "", hasta: "", etiqueta: "Todos los períodos" };
+  if (id === "anio") return { desde: `${a}-01-01`, hasta: `${a}-12-31`, etiqueta: `Año ${a}`, corto: `${a}` };
+  if (id === "rango") {
+    return { desde: desde || "", hasta: hasta || "", etiqueta: `${desde || "inicio"} a ${hasta || "hoy"}`, corto: `${desde || "inicio"}_a_${hasta || "hoy"}` };
+  }
+  return { desde: "", hasta: "", etiqueta: "Todos los períodos", corto: "historico" };
 };
 
 export const enRango = (fecha, rango) => {

@@ -3,9 +3,10 @@ import jsPDF from 'jspdf'
 import { supabase } from '../supabase'
 import { C } from '../lib/colors'
 import { avisar, confirmar } from '../lib/dialogo'
-import { uid, fmt, today, nombreMes, coincide, enRango } from '../lib/helpers'
+import { uid, fmt, today, nombreMes, coincide, enRango, slug } from '../lib/helpers'
 import { METODOS } from '../lib/constants'
 import { subirArchivo, borrarArchivo } from '../lib/upload'
+import { cargarLogo, membrete, encabezadoDoc, tabla, recuadroTotal, pie } from '../lib/pdf'
 import Badge from './ui/Badge'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
@@ -102,60 +103,77 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
     .filter(x => x.pendiente > 0 || x.viaje.id === form.viaje_id)
     .sort((a,b) => (b.viaje.salida || "").localeCompare(a.viaje.salida || ""))
 
-  const exportarPDF = rango => {
+  const exportarPDF = async (rango, clienteId) => {
     setModalPDF(false)
-    const doc = new jsPDF()
-    doc.setFontSize(16)
-    doc.text("Reporte de Pagos - Chutos", 14, 15)
-    doc.setFontSize(10)
-    doc.text(`Período: ${rango.etiqueta}`, 14, 21)
-    doc.text(`Generado: ${today()}`, 14, 26)
+    const logo = await cargarLogo()
+    const doc = new jsPDF({ unit: 'mm', format: 'letter' })
 
-    let y = 37
-    const encabezado = titulo => {
-      doc.setFontSize(13)
-      doc.text(titulo, 14, y)
-      y += 7
-      doc.setFontSize(9)
-      doc.setFont(undefined, "bold")
-      doc.text("Fecha", 14, y)
-      doc.text("Ruta", 42, y)
-      doc.text("Total", 118, y)
-      doc.text("Cobrado", 145, y)
-      doc.text("Pendiente", 172, y)
-      doc.setFont(undefined, "normal")
-      y += 5
+    const delPeriodo = porViaje.filter(x => (rango.desde || rango.hasta) ? enRango(x.viaje.salida, rango) : true)
+
+    // Un estado de cuenta por cliente. "Sin cliente asignado" agrupa los sueltos.
+    const grupos = clienteId === "todos"
+      ? [...clientes, { id:"", nombre:"Sin cliente asignado" }]
+          .map(c => ({ cliente:c, items: delPeriodo.filter(x => (x.viaje.cliente_id || "") === c.id) }))
+          .filter(g => g.items.length > 0)
+      : [{ cliente: clientes.find(c => c.id === clienteId) || { nombre:"Cliente" },
+           items: delPeriodo.filter(x => x.viaje.cliente_id === clienteId) }]
+
+    if (grupos.length === 0) {
+      avisar("No hay viajes en ese período para generar el estado de cuenta.")
+      return
     }
 
-    const filas = lista => {
-      if (lista.length === 0) {
-        doc.text("Sin viajes", 14, y)
-        y += 6
-        return
-      }
-      lista.forEach(x => {
-        if (y > 280) { doc.addPage(); y = 15 }
-        doc.text(x.viaje.salida || "", 14, y)
-        doc.text(`${x.viaje.origen} → ${x.viaje.destino}`.slice(0, 35), 42, y)
-        doc.text(`$${fmt(x.viaje.flete)}`, 118, y)
-        doc.text(`$${fmt(x.totalPagado)}`, 145, y)
-        doc.text(`$${fmt(x.pendiente)}`, 172, y)
-        y += 6
-      })
-    }
+    const cols = [
+      { titulo:"FECHA",     ancho:22 },
+      { titulo:"N°",        ancho:18 },
+      { titulo:"RUTA",      ancho:76 },
+      { titulo:"MONTO",     ancho:24, align:"right" },
+      { titulo:"ABONADO",   ancho:24, align:"right" },
+      { titulo:"SALDO",     ancho:24, align:"right", negrita:true },
+    ]
 
-    const delPeriodo = porViaje.filter(x => rango.desde || rango.hasta ? enRango(x.viaje.salida, rango) : true)
-    const pendientes = delPeriodo.filter(x => x.pendiente > 0)
-    const cobrados = delPeriodo.filter(x => x.pendiente <= 0)
+    grupos.forEach((g, idx) => {
+      if (idx > 0) doc.addPage()
+      let y = membrete(doc, logo)
+      const saldo = g.items.reduce((s,x) => s + Math.max(x.pendiente, 0), 0)
 
-    encabezado("Viajes pendientes")
-    filas(pendientes)
-    y += 8
-    if (y > 260) { doc.addPage(); y = 15 }
-    encabezado("Viajes cobrados")
-    filas(cobrados)
+      y = encabezadoDoc(doc, y, "Estado de cuenta", [
+        ["Cliente:", g.cliente.nombre],
+        ["Período:", rango.etiqueta],
+        g.cliente.rif && ["RIF:", g.cliente.rif],
+        g.cliente.tel && ["Teléfono:", g.cliente.tel],
+      ])
 
-    doc.save(`pagos_chutos_${today()}.pdf`)
+      y = tabla(doc, y, cols,
+        g.items
+          .sort((a,b) => (a.viaje.salida || "").localeCompare(b.viaje.salida || ""))
+          .map(x => [
+            x.viaje.salida || "",
+            x.viaje.numero || "",
+            `${x.viaje.origen || ""} - ${x.viaje.destino || ""}`,
+            fmt(x.viaje.flete),
+            fmt(x.totalPagado),
+            fmt(Math.max(x.pendiente, 0)),
+          ]),
+        {
+          vacio: "Sin viajes en este período",
+          totales: ["", "", "TOTALES",
+            fmt(g.items.reduce((s,x) => s + (x.viaje.flete || 0), 0)),
+            fmt(g.items.reduce((s,x) => s + x.totalPagado, 0)),
+            fmt(saldo)],
+        })
+
+      recuadroTotal(doc, y, "Total adeudado", saldo)
+    })
+
+    pie(doc, today())
+
+    // Nombre que dice de quién y de cuándo es, para no acabar con "(1)", "(2)"...
+    const periodo = slug(rango.corto)
+    const nombre = grupos.length === 1
+      ? `estado-de-cuenta_${slug(grupos[0].cliente.nombre)}_${periodo}.pdf`
+      : `estados-de-cuenta_${grupos.length}-clientes_${periodo}.pdf`
+    doc.save(nombre)
   }
 
   return (
@@ -235,7 +253,7 @@ const Pagos = ({ viajes, clientes, conductores, camiones, pagos, setPagos }) => 
         })}
       </div>
 
-      {modalPDF && <PeriodoPDF onClose={() => setModalPDF(false)} onExportar={exportarPDF}/>}
+      {modalPDF && <PeriodoPDF onClose={() => setModalPDF(false)} onExportar={exportarPDF} clientes={clientes}/>}
 
       {modal && (
         <Modal title={modal === "new" ? "Registrar pago" : "Editar pago"} onClose={() => setModal(null)}>
