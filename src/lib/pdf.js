@@ -26,6 +26,8 @@ export async function cargarLogo() {
 }
 
 // Membrete con logo y datos fiscales. Devuelve la Y donde sigue el contenido.
+// Si no hay ni nombre ni logo, el documento sale sin membrete: solo la franja
+// de color arriba. Queda limpio, no roto.
 export function membrete(doc, logo) {
   let y = MARGEN
   let x = MARGEN
@@ -39,24 +41,31 @@ export function membrete(doc, logo) {
     }
   }
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(15)
-  doc.setTextColor(...P.texto)
-  doc.text(EMPRESA.nombre || 'Vialog', x, y + 6)
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8.5)
-  doc.setTextColor(...P.tenue)
   const lineas = [
     EMPRESA.rif && `RIF ${EMPRESA.rif}`,
     EMPRESA.direccion,
     [EMPRESA.telefono, EMPRESA.correo].filter(Boolean).join('  ·  '),
   ].filter(Boolean)
 
-  let dy = y + 11.5
-  lineas.forEach(l => { doc.text(l, x, dy); dy += 4 })
+  let dy = y
+  if (EMPRESA.nombre) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(15)
+    doc.setTextColor(...P.texto)
+    doc.text(EMPRESA.nombre, x, y + 6)
+    dy = y + 11.5
+  }
 
-  y = Math.max(dy, logo ? MARGEN + 26 : dy) + 2
+  if (lineas.length) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8.5)
+    doc.setTextColor(...P.tenue)
+    lineas.forEach(l => { doc.text(l, x, dy); dy += 4 })
+  }
+
+  const hayMembrete = EMPRESA.nombre || lineas.length || logo
+  y = hayMembrete ? Math.max(dy, logo ? MARGEN + 26 : dy) + 2 : MARGEN
+
   doc.setDrawColor(...P.principal)
   doc.setLineWidth(1)
   doc.line(MARGEN, y, ANCHO - MARGEN, y)

@@ -1,11 +1,13 @@
 // ============================================================
-//  DATOS DE TU EMPRESA — esto es lo único que tienes que editar
-//  Todo lo que pongas aquí sale impreso en el membrete del PDF.
-//  Si algún dato lo dejas en "", simplemente no aparece.
+//  DATOS DE LA EMPRESA — todo esto es opcional
+//  Lo que pongas aquí sale impreso en el membrete del PDF.
+//  Lo que dejes en "" no aparece, y si están todos vacíos el
+//  documento sale sin membrete, limpio, sin huecos ni textos raros.
+//  Para activarlo más adelante basta con escribir los datos aquí.
 // ============================================================
 
 export const EMPRESA = {
-  nombre:    "[ NOMBRE DE LA EMPRESA ]",
+  nombre:    "",
   rif:       "",
   direccion: "",
   telefono:  "",
