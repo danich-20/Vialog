@@ -5,8 +5,8 @@
 // ============================================================
 
 export const EMPRESA = {
-  nombre:    "TRANSPORTE S.R 2023",
-  rif:       "J-00000000-0",
+  nombre:    "[ NOMBRE DE LA EMPRESA ]",
+  rif:       "",
   direccion: "",
   telefono:  "",
   correo:    "",
