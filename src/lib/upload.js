@@ -34,7 +34,11 @@ export async function subirArchivo(file, carpeta) {
   const nombre = `${carpeta}/${Date.now()}_${Math.random().toString(36).slice(2, 9)}.${ext}`
   const { error } = await supabase.storage.from(BUCKET).upload(nombre, listo)
   if (error) {
-    await avisar('Error al subir archivo: ' + error.message)
+    // "Bucket not found" o un fallo de permisos no le dicen nada al usuario
+    const configuracion = /bucket|policy|row-level/i.test(error.message)
+    await avisar(configuracion
+      ? 'No se pudo subir la imagen: falta configurar el depósito de archivos en Supabase. El registro se guarda igual, pero sin la imagen.'
+      : `No se pudo subir la imagen (${error.message}). El registro se guarda igual, pero sin la imagen.`)
     return null
   }
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(nombre)
